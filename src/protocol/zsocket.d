@@ -1,25 +1,18 @@
 
 module protocol.zsocket;
 
-import std.stdio, std.conv, std.string;
-public import zmq;
+import std.stdio, std.conv, std.string, core.thread;
+public import zmq.zmq;
+
+// Create a TLS context...
+void * zmqCtx;
+string zmqIdent;
+
+// ------------------------------------------------------------------------- //
+// ------------------------------------------------------------------------- //
 
 class ZSocket
 {
-    static void * zmqCtx;
-    static string zmqIdent;
-
-    static this()
-    {
-        //all ZSocket instances share a single ZMQ Context
-        zmqCtx = zmq_ctx_new();
-    }
-
-    static ~this()
-    {
-        zmq_ctx_destroy( zmqCtx );
-    }
-
     static string verStr()
     {
         int major, minor, patch;
@@ -31,11 +24,17 @@ class ZSocket
 
     this( int type )
     {
-        zmqSock = zmq_socket( zmqCtx, type );
+		if( zmqCtx is null )
+			zmqCtx = zmq_ctx_new();
+
+		zmqSock = zmq_socket( zmqCtx, type );
     }
 
     this( string addr, int type )
     {
+		if( zmqCtx is null )
+			zmqCtx = zmq_ctx_new();
+			
         zmqSock = zmq_socket( zmqCtx, type );
         connect( addr );
     }
@@ -47,20 +46,22 @@ class ZSocket
 
     void bind( string addr )
     {
-        debug writefln( "BIND: %s", addr );
-        assert( zmq_bind( zmqSock, addr.toStringz ) == 0 );
+        if( zmq_bind( zmqSock, addr.toStringz ) != 0 )
+			throw new Exception( "Failed to bind ZMQ socket to '" ~ addr );
     }
 
     void connect( string addr )
     {
-        debug writefln( "CONNECT: %s", addr );
-        assert( zmq_connect( zmqSock, addr.toStringz ) == 0 );
+        if( zmq_connect( zmqSock, addr.toStringz ) != 0 )
+			throw new Exception( "Failed to connect ZMQ socket to '" ~ addr );
     }
 
     char[] receive( int flags = 0 )
     {
         zmq_msg_t msg;
-        assert( zmq_msg_init( &msg ) == 0 );
+        if( zmq_msg_init( &msg ) != 0 )
+			throw new Exception( "Failed to init ZMQ message" );
+			
         auto len = zmq_msg_recv( & msg, zmqSock, flags );
 
         char[] data;
@@ -68,7 +69,6 @@ class ZSocket
         {
             data = cast(char[]) zmq_msg_data( & msg )[ 0 .. len ].dup;
             zmq_msg_close( & msg );
-            debug writefln( "Received a message %d:%s", data.length, data );
         }
         return data;
     }
@@ -76,22 +76,23 @@ class ZSocket
     void send( char[] buf )
     {
         zmq_msg_t msg;
-        assert( zmq_msg_init_size( & msg, buf.length ) == 0 );
+        if( zmq_msg_init_size( & msg, buf.length ) != 0 )
+			throw new Exception( "Failed to init ZMQ message" );
+			
         std.c.string.memcpy( zmq_msg_data( & msg ), buf.ptr, buf.length );
-        assert( zmq_msg_send( & msg, zmqSock, 0 ) > -1 ); //send it off
+        if( zmq_msg_send( & msg, zmqSock, 0 ) == -1 ) //send it off
+			throw new Exception( "Failed to send ZMQ message" );
 
         zmq_msg_close( & msg );
     }
 
     int setSockOpt( int optName, char[] val )
     {
-        debug writefln( "SOCKOPT: %d - %s", optName, val );
         return zmq_setsockopt( zmqSock, optName, cast(void *) val.ptr, val.length );
     }
 
     int setSockOpt( int optName, void * val, size_t vlen )
     {
-        debug writefln( "SOCKOPT: %d - %s", optName, val );
         return zmq_setsockopt( zmqSock, optName, val, vlen );
     }
 
@@ -102,5 +103,6 @@ class ZSocket
     }
 }
 
+// ------------------------------------------------------------------------- //
 // ------------------------------------------------------------------------- //
 

@@ -2,7 +2,7 @@ import std.stdio, std.string, std.regex, std.range, std.conv, std.math, std.stdi
 import std.getopt;
 import std.file, std.path, std.socket, std.concurrency;
 
-import protocol.http, protocol.ajp, protocol.mongrel2;
+import protocol.http, protocol.mongrel2;
 
 import core.sys.posix.signal;
 
@@ -73,7 +73,7 @@ int main( string[] args )
 {
     string addr = "0.0.0.0:8888";
     ushort port = 8888;
-    bool   sync = false;
+    bool   sync = true;
     bool   http = true;
     bool   ajp  = false;
     bool   zmq  = false;
@@ -90,12 +90,13 @@ int main( string[] args )
 
     if( sync )
     {
-        HttpResponse delegate(HttpRequest) dg = (HttpRequest req) => handleRequest( req ,"sync" );
+        RequestDelegate dg = (HttpRequest req) => handleRequest( req ,"sync" );
 
         if( zmq )       mongrel2Serve( "127.0.0.1:8888", "127.0.0.1:8887", dg );
-        else if( ajp )  ajpServe( addr, dg );
+//        else if( ajp )  ajpServe( addr, dg );
         else            httpServe( addr, dg );
     }
+/* TODO: fix when libevent2 implementation works with threads 	
     else
     {
         if( zmq )       tid = spawnLinked( &mongrel2Serve, "127.0.0.1:8888", "127.0.0.1:8887", thisTid() );
@@ -127,7 +128,7 @@ int main( string[] args )
             }
         }
     }
-   
+*/
     writeln( "Bye" );
     return 0;
 }
@@ -138,7 +139,7 @@ int main( string[] args )
 int idx = 0;
 HttpResponse handleRequest( HttpRequest req, string type )
 {
-    debug writeln( "Handling HTTP request for URI: " ~ req.uri );
+//    debug writeln( "Handling HTTP request for URI: " ~ req.uri );
 //    writeln( to!string( idx ) );
 //    debug dump( req );
 
@@ -156,22 +157,11 @@ HttpResponse handleRequest( HttpRequest req, string type )
             resp.data = cast(shared(ubyte[])) read( req.uri[ 1 .. $ ] );
         }
     }
-    else if( match( req.uri, regex( "^/api/*" ) ).empty() )
-    {
-        resp.statusCode = 404;
-        resp.statusMesg = "Not found (uri " ~ req.uri ~ " not supported)";
-        return resp;
-    }
     else
     {
-        debug writefln( "(D) request data length %d", req.data.length );
-
         resp.statusCode = 200;
         resp.statusMesg = "OK";
-
         resp.addHeader( "Content-Type", "text/html; charset=utf-8" );
-//        resp.addHeader( "Connection", "close" );
-        //    resp.addHeader( "X-DAJP", "goughy" );
 
         if( req.method == Method.GET )
         {
@@ -188,7 +178,6 @@ HttpResponse handleRequest( HttpRequest req, string type )
             resp.data = cast(shared ubyte[]) d;
         }
     }
-    debug writefln( "(D) sending return data length %d", resp.data.length );
     return resp;
 }
 

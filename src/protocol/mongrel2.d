@@ -29,7 +29,7 @@ void mongrel2ServeImpl( ZSocket zmqReceive, HttpProcessor proc )
     bool done = false;
     while( !done )
     {
-        char[] msg = zmqReceive.receive( ZMQ_DONTWAIT );
+        char[] msg = zmqReceive.receive();
         debug dumpHex( msg );
 
         HttpRequest req = parseMongrelRequest( msg );
@@ -92,16 +92,20 @@ void mongrel2Serve( string addrPull, string addrPub, Tid tid )
 
 HttpRequest parseMongrelRequest( char[] data )
 {
-    HttpRequest req = new HttpRequest;
-
-    auto tmp       = findSplitBefore( data, " " );
-    req.connection = tmp[ 0 ].idup;
+	if( data.length <= 0 )
+		return null;
+		
+	debug writeln( "parsing mongrel2 request" );
+    auto tmp   = findSplitBefore( data, " " );
+    auto mconn = tmp[ 0 ].idup;
     tmp[ 1 ].popFront(); //skip found space
 
-    tmp            = findSplitBefore( tmp[ 1 ], " " );
-    req.connection ~= ":" ~ tmp[ 0 ]; //add connection ID to the end of the sender UUID
+    tmp    = findSplitBefore( tmp[ 1 ], " " );
+    mconn ~= ":" ~ tmp[ 0 ]; //add connection ID to the end of the sender UUID
     tmp[ 1 ].popFront(); //skip space
 
+	HttpRequest req = new HttpRequest( cast(void*) mconn.ptr );
+	debug writefln( "mongrel2 request %s", mconn );
     tmp            = findSplitBefore( tmp[ 1 ], " " );
     req.uri        = tmp[ 0 ].idup;
     tmp[ 1 ].popFront(); //skip space
@@ -149,12 +153,15 @@ char[] toMongrelResponse( HttpResponse resp )
     buf.reserve( 512 + resp.data.length );
 
     //retrieve the mongrel connection id from the connection identifier
-    char[] conn = resp.connection.dup;
+	const(char)* mc = cast(const(char)*) resp.connection;
+    char[] conn = to!(char[])( mc );
+	debug writefln( "mongrel2 response %s", conn );
+	
     auto tmp = findSplitAfter( conn, ":" );
 
     if( tmp[ 0 ].empty )
     {
-        debug writeln( "Found no mongrel connection id in response connection string " ~ resp.connection );
+        debug writeln( "Found no mongrel connection id in response connection string " ~ conn );
         return null; //no connection id,
     }
 
@@ -168,7 +175,7 @@ char[] toMongrelResponse( HttpResponse resp )
 
     //now add the HTTP payload
     auto x = toBuffer( resp );
-    buf.put( x[ 0 ] );
+    buf.put( x );
     //TODO: ignoring x[ 1 ] (ie. needsClose, for now)
 
     debug dumpHex( cast(char[]) buf.data );
@@ -259,7 +266,6 @@ class DelegateProcessor : protocol.http.DelegateProcessor
     override void onRequest( HttpRequest req )
     {
         HttpResponse resp = dg( req );
-
         if( resp !is null )
             zmqConn.send( toMongrelResponse( resp ) );
     }

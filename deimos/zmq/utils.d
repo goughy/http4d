@@ -18,7 +18,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-module zmq_utils;
+module zmq.utils;
 
 extern (C)
 {

@@ -1,9 +1,10 @@
 --require "d"
-LuaD = "/data/devel-ext/LuaD"
+LuaD   = "/data/devel-ext/LuaD"
+deimos = "/data/devel-ext/dlang/deimos"
 
 solution "http4d"
     configurations { "debug", "release" }
-    includedirs { "src", "src/deimos" } 
+    includedirs { "src", "deimos", deimos .. "/libevent" } 
 
     configuration "debug"
         flags { "Symbols", "ExtraWarnings" }
@@ -14,6 +15,7 @@ solution "http4d"
 
     configuration "release"
         flags { "Optimize" }
+        buildoptions { "-inline", "-O" }
 
     configuration "test"
         buildoptions "-unittest"
@@ -23,7 +25,8 @@ solution "http4d"
         kind "ConsoleApp"
         language "D"
         files { "main.d", "src/protocol/*.d", "src/deimos/*.d" }
-        links { "zmq" }
+        links { "zmq", "event" }
+--[[
 
     project "lua"
         kind "StaticLib"
@@ -64,6 +67,7 @@ solution "http4d"
         files { "examples/autoroute.d", "src/deimos/*.d" }
         files { "src/protocol/*.d" }
         links { "zmq" }
+--]]
 
 --[[
     project "ex1"

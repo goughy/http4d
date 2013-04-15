@@ -52,7 +52,7 @@ Source: $(LINK2 https://github.com/goughy/d/tree/master/http4d, github.com)
 */
 
 module protocol.httpapi;
-import std.stdio, std.array, std.regex, std.typecons, std.ascii, std.string, std.conv;
+import std.stdio, std.array, std.regex, std.typecons, std.ascii, std.string, std.conv, std.file;
 import std.concurrency;
 
 // ------------------------------------------------------------------------- //
@@ -67,7 +67,8 @@ enum Method
     PUT,
     DELETE,
     TRACE,
-    CONNECT
+    CONNECT,
+	PATCH
 };
 
 // ------------------------------------------------------------------------- //
@@ -75,7 +76,8 @@ enum Method
 /**
  * The list of HTTP status codes from $(LINK2 http://en.wikipedia.org/wiki/List_of_HTTP_status_codes, Wikipedia)
  */
-immutable string[ int ] StatusCodes;
+
+immutable string[int] StatusCodes;
 
 static this()
 {
@@ -270,6 +272,7 @@ unittest
     assert( u.port == 8080u );
     assert( u.path == "/" );
 }
+
 /**
  * The $(D Request) class encapsulates all captured data from the inbound client
  * request.  It is the core class the library provides to model an HTTP request
@@ -283,24 +286,28 @@ shared class Request
 {
 public:
 
-    this( string id = "" )
+    this( void* id = null )
     {
-        connection = id;
+        connection = cast(shared(void*))id;
     }
     
-    Tid             tid;
-    string          connection;
-    Method          method;
-    string          protocol;
-    string          uri;
-    string[][string]  headers;
-    string[string]  attrs;
-    ubyte[]         data;
-    string          path;
+    Tid              tid;
+    void*            connection;
+    Method           method;
+    string           protocol;
+    string           uri;
+    string[][string] headers;
+    string[string]   attrs;
+    ubyte[]          data;
 
     string[] getHeader( string k )
     {
-        return cast(string[]) headers[ capHeaderInPlace( k.dup ) ];
+		static string[] empty;
+		auto key = capHeaderInPlace( k.dup );
+		if( auto res = key in headers )
+			return cast(string[]) *res;
+		
+		return empty;
     }
 
     string getAttr( string k )
@@ -311,7 +318,7 @@ public:
     shared( Response ) getResponse()
     {
         //bind the response to the request connection
-        shared Response resp = cast( shared ) new Response( connection, protocol );
+        shared Response resp = cast( shared ) new Response( cast(void*)connection, protocol );
 
         if( "Connection" in headers )
             resp.addHeader( "Connection", getHeader( "Connection" )[ 0 ] );
@@ -341,18 +348,18 @@ shared class Response
 {
 public:
 
-    this( string id = "", string proto  = "" )
+    this( void* id = null, string proto  = "" )
     {
-        connection = id;
+        connection = cast(shared(void*))id;
         protocol = proto;
     }
 
-    string          connection;
-    string          protocol;
-    int             statusCode;
-    string          statusMesg;
-    string[][string]  headers;
-    ubyte[]         data;
+    void*            connection;
+    string           protocol;
+    int              statusCode;
+    string         	 statusMesg;
+    string[][string] headers;
+    ubyte[]          data;
 
     shared( Response ) addHeader( string k, string v )
     {
@@ -595,7 +602,7 @@ public:
     {
         foreach( handler; handlerMap )
         {
-            debug writefln( "Checking regex %s matches uri %s", handler.u, req.uri );
+//            debug writefln( "Checking regex %s matches uri %s", handler.u, req.uri );
             if( match( req.uri, handler.r ) )
                 return handler.f( req );
         }
@@ -703,7 +710,7 @@ private:
             if( base[ $ - 1 ] == '/' )
                 base = base[ 0 .. $ - 1 ];
 
-            writeln( "Mapping " ~ T.stringof ~ "." ~ funcName ~"() -> [" ~ to!string( method ) ~ ", " ~ base ~ "/" ~ mountPoint ~ "]" );
+            debug writeln( "Mapping " ~ T.stringof ~ "." ~ funcName ~"() -> [" ~ to!string( method ) ~ ", " ~ base ~ "/" ~ mountPoint ~ "]" );
             uriRouter.mount( "^" ~ base ~ "/" ~ mountPoint, handler );
             methodRouter.mount( method, uriRouter );
         }
@@ -759,6 +766,30 @@ Method toMethod( string m )
 }
 
 // ------------------------------------------------------------------------- //
+
+string[string] loadMimeTypes( string mimeFile = "/etc/mime.types" )
+{
+	string[string] mt;
+	version(Posix) 
+	{
+		if( exists( mimeFile ) )
+		{
+			auto f = File( mimeFile );
+
+			auto r = regex( r"\s*#.*" );
+			foreach( line; f.byLine )
+			{
+				if( match( line, r ) )
+					continue; //filter comments
+				
+				auto s = std.string.split( line );
+				for( auto i = 1; i < s.length; ++i )
+					mt[ s[ i ].idup ] = s[ 0 ].idup;
+			}
+		}
+	}
+	return mt;
+}
 
 /**
  * Parse an address of the form "x.x.x.x:yyyy" into a string address and 
@@ -850,9 +881,9 @@ debug void dump( shared( Request ) r, string title = "" )
     if( title.length > 0 )
         writeln( title );
 
-    writeln( "Connection: ", r.connection.idup );
+//    writeln( "Connection: ", r.connection );
     writeln( "Method    : ", r.method );
-    writeln( "Protocol  : ", r.protocol.idup );
+    writeln( "Protocol  : ", r.protocol );
     writeln( "URI       : ", r.uri.idup );
 
     foreach( k, v; r.headers )
@@ -869,7 +900,7 @@ debug void dump( shared( Response ) r, string title = "" )
     if( title.length > 0 )
         writeln( title );
 
-    writeln( "Connection: ", r.connection.idup );
+//    writeln( "Connection: ", to!string( r.connection ) );
     writeln( "Status    : ", r.statusCode, " - ", r.statusMesg.idup );
 
     foreach( k, v; r.headers )
