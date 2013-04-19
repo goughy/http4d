@@ -1,10 +1,9 @@
 --require "d"
 LuaD   = "/data/devel-ext/LuaD"
-deimos = "/data/devel-ext/dlang/deimos"
 
 solution "http4d"
     configurations { "debug", "release" }
-    includedirs { "src", "deimos", deimos .. "/libevent" } 
+    includedirs { "src", "deimos" } 
 
     configuration "debug"
         flags { "Symbols", "ExtraWarnings" }
@@ -24,7 +23,7 @@ solution "http4d"
     project "http4d"
         kind "ConsoleApp"
         language "D"
-        files { "main.d", "src/protocol/*.d", "src/deimos/*.d" }
+        files { "main.d", "src/protocol/*.d" }
         links { "zmq", "event" }
 --[[
 
