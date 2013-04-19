@@ -52,7 +52,8 @@ Source: $(LINK2 https://github.com/goughy/d/tree/master/http4d, github.com)
 */
 
 module protocol.httpapi;
-import std.stdio, std.array, std.regex, std.typecons, std.ascii, std.string, std.conv, std.file;
+import std.stdio, std.array, std.regex, std.typecons, std.ascii, std.string, 
+		std.conv, std.file, std.base64, std.string : splitter;
 import std.concurrency;
 
 // ------------------------------------------------------------------------- //
@@ -887,10 +888,10 @@ debug void dump( shared( Request ) r, string title = "" )
     writeln( "URI       : ", r.uri.idup );
 
     foreach( k, v; r.headers )
-    writeln( "\t", k.idup, ": ", v.idup );
+		writeln( "\t", k.idup, ": ", v.idup );
 
     foreach( k, v; r.attrs )
-    writeln( "\t", k.idup, ": ", v.idup );
+		writeln( "\t", k.idup, ": ", v.idup );
 }
 
 // ------------------------------------------------------------------------- //
