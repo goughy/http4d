@@ -318,11 +318,49 @@ HttpRequest toHttpRequest( evhttp_request * req )
 			break;
 	}
 	hr.protocol = (req.minor == 0 ? HTTP_10 : HTTP_11);
-	hr.uri      = "" ~ to!string( req.uri );
 	
 	auto headers = req.input_headers;
-	for( auto cur = headers.tqh_first; cur.next.tqe_next != null; cur = cur.next.tqe_next )
-		hr.headers[ to!string( cur.key ) ] ~= to!string( cur.value );
+	for( auto cur = headers.tqh_first; cur != null; cur = cur.next.tqe_next )
+		hr.headers[ capHeaderInPlace( to!string( cur.key ).dup ) ] ~= to!string( cur.value );
+
+	auto uri = evhttp_uri_parse_with_flags( req.uri, EVHTTP_URI_NONCONFORMANT );
+	if( uri )
+	{
+		scope(exit) evhttp_uri_free( uri );
+		
+		const(char) * cc = evhttp_uri_get_scheme( uri );
+		if( cc )
+			hr.attrs[ "uri_scheme" ] = to!string( cc );
+		
+		cc = evhttp_uri_get_userinfo( uri );
+		if( cc )
+			hr.attrs[ "uri_userinfo" ] = to!string( cc );
+
+		cc = evhttp_uri_get_host( uri );
+		if( cc )
+			hr.attrs[ "uri_host" ] = to!string( cc );
+
+		int port = evhttp_uri_get_port( uri );
+		hr.attrs[ "uri_port" ] = to!string( port );
+
+		cc = evhttp_uri_get_path( uri );
+		if( cc )
+		{
+			hr.attrs[ "uri_path" ] = to!string( cc ); 
+			hr.uri = to!string( cc );
+		}
+
+		cc = evhttp_uri_get_query( uri );
+		if( cc )
+			hr.attrs[ "uri_query" ] = to!string( cc );
+
+		cc = evhttp_uri_get_fragment( uri );
+		if( cc )
+			hr.attrs[ "uri_fragment" ] = to!string( cc );
+	}
+	
+	if( hr.uri.length == 0 )
+		hr.uri = "" ~ to!string( req.uri );
 	
 	auto len = evbuffer_get_length( req.input_buffer );
 	if( len > 0 )

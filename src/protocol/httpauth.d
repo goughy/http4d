@@ -14,6 +14,7 @@ class Authorization
 
 	struct Principal
 	{
+		string id;
 		string username;
 		string fullName;
 	}

@@ -843,6 +843,8 @@ string[string] parseHeader( string c, string delim = "," )
     return result;
 }
 
+alias parseHeader parseQueryString;
+
 // ------------------------------------------------------------------------- //
 
 /** Convenience function to set the HTTP response status code and message */
@@ -887,9 +889,11 @@ debug void dump( shared( Request ) r, string title = "" )
     writeln( "Protocol  : ", r.protocol );
     writeln( "URI       : ", r.uri.idup );
 
+    writeln( "Headers   : " );
     foreach( k, v; r.headers )
 		writeln( "\t", k.idup, ": ", v.idup );
 
+    writeln( "Attributes: " );
     foreach( k, v; r.attrs )
 		writeln( "\t", k.idup, ": ", v.idup );
 }
@@ -905,7 +909,7 @@ debug void dump( shared( Response ) r, string title = "" )
     writeln( "Status    : ", r.statusCode, " - ", r.statusMesg.idup );
 
     foreach( k, v; r.headers )
-    writeln( "\t", k.idup, ": ", v.idup );
+		writeln( "\t", k.idup, ": ", v.idup );
 
     dumpHex( cast( char[] ) r.data );
 }
