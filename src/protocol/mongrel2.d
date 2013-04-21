@@ -230,6 +230,8 @@ HttpRequest parseMongrelRequest( char[] data )
             req.method = toMethod( req.headers[ key ][ 0 ] );
         else if( key == "Version" )
             req.protocol = req.headers[ key ][ 0 ];
+        else if( key == "Query" )
+            req.attrs[ "uri_query" ] = req.headers[ key ][ 0 ];
     }
 
     if( req.method == Method.UNKNOWN && req.headers[ "Method" ][ 0 ] == "JSON" )
@@ -241,6 +243,10 @@ HttpRequest parseMongrelRequest( char[] data )
             return null;
         }
     }
+	else
+	{
+		req.data = cast(shared(ubyte[])) bodyStr;
+	}
 //    debug dump( req );
     return req;
 }

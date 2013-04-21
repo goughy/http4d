@@ -54,7 +54,7 @@ Source: $(LINK2 https://github.com/goughy/d/tree/master/http4d, github.com)
 module protocol.httpapi;
 
 import std.stdio, std.array, std.regex, std.typecons, std.ascii, std.string, 
-		std.concurrency, std.conv, std.file, std.base64, std.string : splitter;
+		std.concurrency, std.conv, std.file, std.base64;
 import core.sys.posix.signal, core.sys.posix.stdlib;
 
 // ------------------------------------------------------------------------- //

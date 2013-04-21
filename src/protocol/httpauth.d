@@ -22,7 +22,7 @@ class Authorization
 	this( string authorizationHeader, string httpMethod = "GET" )
 	{
 		type = Type.None;
-		params[ "_auth_method" ] = httpMethod;
+		params[ "auth_method" ] = httpMethod;
 		
 		auto pos = countUntil( authorizationHeader, " " );
 		if( pos != -1 )
@@ -100,8 +100,8 @@ private:
 		if( d.length > 0 )
 		{
 			auto res = std.string.split( d, ":" );
-			params[ "username" ] = res[ 0 ].idup.strip;
-			params[ "password" ] = res[ 1 ].idup.strip;
+			params[ "username" ] = res[ 0 ].idup;
+			params[ "password" ] = res[ 1 ].idup;
 		}
 	}
 
@@ -142,21 +142,29 @@ private:
 
 // ------------------------------------------------------------------------- //
 
+string genDigestPassword( string username, string password, string realm )
+{
+	return toHexString( md5Of( username ~ ":" ~ realm ~ ":" ~ password ) ).idup.toLower;
+}
+
+// ------------------------------------------------------------------------- //
+
 private bool verifyBasicPassword( Authorization auth, string password )
 {
-	return "password" in auth.params && password == auth.params[ "password" ];
+	auth.success = ("password" in auth.params && password == auth.params[ "password" ]);
+	return auth.success;
 }
 
 // ------------------------------------------------------------------------- //
 
 private bool verifyDigestPassword( Authorization auth, string password )
 {
-    if( auth is null || !auth.has( "_auth_method") || !auth.has( "uri" ) ||
+    if( auth is null || !auth.has( "auth_method") || !auth.has( "uri" ) ||
             !auth.has( "nonce" ) || !auth.has( "nc" ) || !auth.has( "cnonce" ) ||
             !auth.has( "qop" ) || !auth.has( "response" ) )
         return false;
 
-	string ha2 = auth.params[ "_auth_method" ] ~ ":" ~ auth.params[ "uri" ];
+	string ha2 = auth.params[ "auth_method" ] ~ ":" ~ auth.params[ "uri" ];
 	ha2 = md5Of( ha2 ).toHexString.idup.toLower;
 	auth.params[ "_pwd_ha2" ] = ha2;
 
@@ -176,7 +184,7 @@ private bool verifyDigestPassword( Authorization auth, string password )
 	string resp = md5Of( response.data ).toHexString.idup.toLower;
 	auth.params[ "_pwd_response" ] = resp;
 	
-	auth.success = resp == auth.params[ "response" ];
+	auth.success = (resp == auth.params[ "response" ]);
 
 	return auth.success;
 }
