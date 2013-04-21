@@ -52,10 +52,31 @@ Source: $(LINK2 https://github.com/goughy/d/tree/master/http4d, github.com)
 */
 
 module protocol.httpapi;
-import std.stdio, std.array, std.regex, std.typecons, std.ascii, std.string, 
-		std.conv, std.file, std.base64, std.string : splitter;
-import std.concurrency;
 
+import std.stdio, std.array, std.regex, std.typecons, std.ascii, std.string, 
+		std.concurrency, std.conv, std.file, std.base64, std.string : splitter;
+import core.sys.posix.signal, core.sys.posix.stdlib;
+
+// ------------------------------------------------------------------------- //
+
+enum MAX_REQUEST_LEN = 1024 * 1024 * 20; // 20MB
+enum DIVERT_REQUEST_LEN = 1024 * 30; // 50kB
+
+enum TIMEOUT_MSEC   = 0;
+enum CHUNK_SIZE     = 8096; //try to get at least Content-Length header in first chunk
+bool running        = false;
+
+enum SERVER_HEADER  = "Server";
+enum SERVER_DESC    = "http4d/1.0";
+enum NEWLINE        = "\r\n";
+enum HTTP_10        = "HTTP/1.0";
+enum HTTP_11        = "HTTP/1.1";
+enum SERVER_ADMIN   = "root";
+enum SERVER_HOST    = "localhost.localdomain";
+enum SERVER_PORT    = 8080;
+enum USER_AGENT     = SERVER_DESC ~ " (" ~ __VENDOR__ ~ " " ~ to!string( __VERSION__ ) ~ ")";
+
+// ------------------------------------------------------------------------- //
 // ------------------------------------------------------------------------- //
 
 enum Method
@@ -399,6 +420,41 @@ alias shared( Response ) function( shared( Request ) ) RequestHandler;
 
 alias shared( Request ) HttpRequest;
 alias shared( Response ) HttpResponse;
+
+/**
+ * Delegate signature required to be implemented by any handler
+ */
+
+alias shared(Response) delegate(shared(Request)) RequestDelegate;
+
+
+// ------------------------------------------------------------------------- //
+
+class HttpException : Exception
+{
+public:
+
+    this( int c = 400, string m = "" )
+    {
+        super( m.empty ? StatusCodes[ c ] : m );
+        code = c;
+    }
+
+    int code;
+}
+
+// ------------------------------------------------------------------------- //
+
+interface HttpProcessor
+{
+    void onInit();
+    void onLog( string s );
+    void onRequest( shared( Request ) req );
+    bool onIdle();  //return true if we processed something
+    void onExit();
+	
+	HttpResponse lastResponse();
+}
 
 // ------------------------------------------------------------------------- //
 
@@ -764,6 +820,80 @@ Method toMethod( string m )
     }
 
     return Method.UNKNOWN;
+}
+
+// ------------------------------------------------------------------------- //
+
+ubyte[] toBuffer( HttpResponse r, bool includeHeaders = true )
+{
+    auto buf = appender!( ubyte[] )();
+    buf.reserve( 512 );
+
+    if( includeHeaders )
+    {
+        buf.put( cast( ubyte[] ) HTTP_11 );
+        buf.put( ' ' );
+
+        buf.put( cast( ubyte[] ) to!string( r.statusCode ) );
+        buf.put( ' ' );
+        buf.put( cast( ubyte[] ) r.statusMesg );
+        buf.put( '\r' );
+        buf.put( '\n' );
+
+        r.addHeader( SERVER_HEADER, SERVER_DESC );
+
+        if( !( "Date" in r.headers ) )
+        {
+            long now = time( null );
+            r.addHeader( "Date", to!string( asctime( gmtime( & now ) ) )[0..$ -1] );
+        }
+
+        foreach( k, v1; r.headers )
+        {
+            foreach( v; v1 )
+            {
+                buf.put( cast( ubyte[] ) k );
+                buf.put( ':' );
+                buf.put( ' ' );
+                buf.put( cast( ubyte[] ) v );
+                buf.put( '\r' );
+                buf.put( '\n' );
+            }
+        }
+
+		buf.put( '\r' );
+		buf.put( '\n' );
+    }
+
+    if( r.data.length > 0 )
+        buf.put( cast( ubyte[] ) r.data );
+
+	if( !( "Content-Length" in r.headers ) )
+		r.addHeader( "Content-Length", to!string( r.data.length ) );
+
+    debug dump( r, "HTTP RESPONSE" );
+    return buf.data;
+}
+
+// ------------------------------------------------------------------------- //
+
+ubyte[] toBuffer( HttpRequest req )
+{
+    ubyte[] buf;
+
+    buf ~= format( "%s %s %s\r\n", to!string( req.method ), req.uri.dup, req.protocol.dup );
+    buf ~= format( "Host: %s\r\n", req.getHeader( "Host" ) );
+    foreach( k,v1; req.headers )
+    {
+        if( k != "Host" )
+        {
+            foreach( v; v1 )
+                buf ~= format( "%s: %s\r\n", k.dup, v.dup );
+        }
+    }
+
+    buf ~= format( "Connection: %s\r\n\r\n", req.protocol == HTTP_10 ? "close" : "Keep-Alive" );
+    return buf;
 }
 
 // ------------------------------------------------------------------------- //

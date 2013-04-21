@@ -1,19 +1,120 @@
 
 module protocol.mongrel2;
 
-import std.ascii, std.c.stdlib;
-public import protocol.http;
-public import protocol.zsocket;
-import std.stdio, std.string, std.conv, std.stdint, std.array, std.range,
-       std.datetime, std.algorithm, std.concurrency, std.typecons, std.random, std.utf;
+public import protocol.httpapi;
 
-import std.json;
+import std.ascii, std.c.stdlib;
+import std.stdio, std.string, std.conv, std.stdint, std.array, std.range, std.json,
+       std.datetime, std.algorithm, std.concurrency, std.typecons, std.random, std.utf;
+import deimos.zmq.zmq;
 
 string zmqIdentity;
 bool running = true;
 
 extern (C) int errno;
 
+// ------------------------------------------------------------------------- //
+
+// Create a TLS context...
+void * zmqCtx;
+string zmqIdent;
+
+// ------------------------------------------------------------------------- //
+// ------------------------------------------------------------------------- //
+
+class ZSocket
+{
+    static string verStr()
+    {
+        int major, minor, patch;
+        zmq_version( &major, &minor, &patch );
+        return format( "%d.%d.%d", major, minor, patch );
+    }
+
+    void * zmqSock;
+
+    this( int type )
+    {
+		if( zmqCtx is null )
+			zmqCtx = zmq_ctx_new();
+
+		zmqSock = zmq_socket( zmqCtx, type );
+    }
+
+    this( string addr, int type )
+    {
+		if( zmqCtx is null )
+			zmqCtx = zmq_ctx_new();
+			
+        zmqSock = zmq_socket( zmqCtx, type );
+        connect( addr );
+    }
+
+    ~this()
+    {
+        close();
+    }
+
+    void bind( string addr )
+    {
+        if( zmq_bind( zmqSock, addr.toStringz ) != 0 )
+			throw new Exception( "Failed to bind ZMQ socket to '" ~ addr );
+    }
+
+    void connect( string addr )
+    {
+        if( zmq_connect( zmqSock, addr.toStringz ) != 0 )
+			throw new Exception( "Failed to connect ZMQ socket to '" ~ addr );
+    }
+
+    char[] receive( int flags = 0 )
+    {
+        zmq_msg_t msg;
+        if( zmq_msg_init( &msg ) != 0 )
+			throw new Exception( "Failed to init ZMQ message" );
+			
+        auto len = zmq_msg_recv( & msg, zmqSock, flags );
+
+        char[] data;
+        if( len >= 0 )
+        {
+            data = cast(char[]) zmq_msg_data( & msg )[ 0 .. len ].dup;
+            zmq_msg_close( & msg );
+        }
+        return data;
+    }
+
+    void send( char[] buf )
+    {
+        zmq_msg_t msg;
+        if( zmq_msg_init_size( & msg, buf.length ) != 0 )
+			throw new Exception( "Failed to init ZMQ message" );
+			
+        std.c.string.memcpy( zmq_msg_data( & msg ), buf.ptr, buf.length );
+        if( zmq_msg_send( & msg, zmqSock, 0 ) == -1 ) //send it off
+			throw new Exception( "Failed to send ZMQ message" );
+
+        zmq_msg_close( & msg );
+    }
+
+    int setSockOpt( int optName, char[] val )
+    {
+        return zmq_setsockopt( zmqSock, optName, cast(void *) val.ptr, val.length );
+    }
+
+    int setSockOpt( int optName, void * val, size_t vlen )
+    {
+        return zmq_setsockopt( zmqSock, optName, val, vlen );
+    }
+
+    void close()
+    {
+        if( zmqSock !is null )
+            zmq_close( zmqSock );
+    }
+}
+
+// ------------------------------------------------------------------------- //
 // ------------------------------------------------------------------------- //
 
 void mongrel2ServeImpl( ZSocket zmqReceive, HttpProcessor proc )
@@ -140,7 +241,7 @@ HttpRequest parseMongrelRequest( char[] data )
             return null;
         }
     }
-    debug dump( req );
+//    debug dump( req );
     return req;
 }
 
@@ -174,11 +275,9 @@ char[] toMongrelResponse( HttpResponse resp )
     buf.put( ' ' );
 
     //now add the HTTP payload
-    auto x = toBuffer( resp );
-    buf.put( x );
-    //TODO: ignoring x[ 1 ] (ie. needsClose, for now)
+    buf.put( toBuffer( resp ) );
 
-    debug dumpHex( cast(char[]) buf.data );
+//    debug dumpHex( cast(char[]) buf.data );
     return cast(char[]) buf.data.dup;
 }
 
@@ -222,16 +321,42 @@ bool isDisconnect( HttpRequest req )
 }
 
 // ------------------------------------------------------------------------- //
+// ------------------------------------------------------------------------- //
 
-class TidProcessor : protocol.http.TidProcessor
+class TidProcessor : HttpProcessor
 {
-    this( Tid tid, ZSocket conn )
+public:
+
+    this( Tid t, ZSocket conn )
     {
-        super( tid, "[MONGREL2] " );
+		tid = t;
+        prefix = "[MONGREL2] ";
         zmqConn = conn;
     }
 
-    override bool onIdle()  //return true if we processed something
+    void onInit()
+    {
+        onLog( "Protocol initialising (ASYNC mode)" );
+    }
+
+    void onLog( string s )
+    {
+        if( tid != Tid.init )
+            send( tid, prefix ~ s );
+    }
+
+    void onExit()
+    {
+        onLog( "Protocol exiting (ASYNC mode)" );
+    }
+
+    void onRequest( shared( Request ) req )
+    {
+        req.tid = cast(shared) thisTid();
+        send( tid, req );
+    }
+
+    bool onIdle()  //return true if we processed something
     {
         receiveTimeout( dur!"usecs"( 0 ),
             ( int i )
@@ -248,30 +373,66 @@ class TidProcessor : protocol.http.TidProcessor
         return true;
     }
 
+	HttpResponse lastResponse() { return null; }
+
 private:
 
+    Tid tid;
+    string prefix;
     ZSocket zmqConn;
 }
 
 // ------------------------------------------------------------------------- //
 
-class DelegateProcessor : protocol.http.DelegateProcessor
+class DelegateProcessor : HttpProcessor
 {
-    this( HttpResponse delegate(HttpRequest) dg, ZSocket conn )
+public:
+
+    this( HttpResponse delegate(HttpRequest) d, ZSocket conn )
     {
-        super( dg, "[MONGREL2] " );
+        dg = d;
+        prefix = "[MONGREL2] ";
         zmqConn = conn;
     }
 
-    override void onRequest( HttpRequest req )
+    void onInit()
     {
-        HttpResponse resp = dg( req );
-        if( resp !is null )
-            zmqConn.send( toMongrelResponse( resp ) );
+        onLog( "Protocol initialising (SYNC mode)" );
     }
 
-private:
+    void onLog( string s )
+    {
+        writeln( prefix ~ s );
+    }
 
+    void onExit()
+    {
+        onLog( "Protocol exiting (SYNC mode)" );
+    }
+
+    void onRequest( HttpRequest req )
+    {
+        lastResp = dg( req );
+        if( lastResp !is null )
+            zmqConn.send( toMongrelResponse( lastResp ) );
+    }
+
+    bool onIdle()
+    {
+        //noop for sync
+        return false;
+    }
+
+	HttpResponse lastResponse() { return lastResp; }
+
+protected:
+
+	HttpResponse delegate(HttpRequest) dg;
+    string prefix;
+    HttpResponse lastResp;
     ZSocket zmqConn;
 }
+
+// ------------------------------------------------------------------------- //
+// ------------------------------------------------------------------------- //
 

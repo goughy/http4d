@@ -50,44 +50,6 @@ import deimos.event2.keyvalq_struct, deimos.event2.http;
 
 public import protocol.httpapi;
 
-enum MAX_REQUEST_LEN = 1024 * 1024 * 20; // 20MB
-enum DIVERT_REQUEST_LEN = 1024 * 30; // 50kB
-
-enum TIMEOUT_MSEC   = 0;
-enum CHUNK_SIZE     = 8096; //try to get at least Content-Length header in first chunk
-bool running        = false;
-
-enum SERVER_HEADER  = "Server";
-enum SERVER_DESC    = "HTTP4D/1.0";
-enum NEWLINE        = "\r\n";
-enum HTTP_10        = "HTTP/1.0";
-enum HTTP_11        = "HTTP/1.1";
-enum SERVER_ADMIN   = "root";
-enum SERVER_HOST    = "localhost.localdomain";
-enum SERVER_PORT    = 8080;
-enum USER_AGENT     = SERVER_DESC ~ " (" ~ __VENDOR__ ~ " " ~ to!string( __VERSION__ ) ~ ")";
-
-/**
- * Delegate signature required to be implemented by any handler
- */
-
-alias shared(Response) delegate(shared(Request)) RequestDelegate;
-
-// ------------------------------------------------------------------------- //
-
-class HttpException : Exception
-{
-public:
-
-    this( int c = 400, string m = "" )
-    {
-        super( m.empty ? StatusCodes[ c ] : m );
-        code = c;
-    }
-
-    int code;
-}
-
 // ------------------------------------------------------------------------- //
 
 /**
@@ -201,19 +163,6 @@ HttpResponse httpClient( HttpRequest req )
 {
 /* TODO: reimplement in terms of evhttp!! */
     return null;
-}
-
-// ------------------------------------------------------------------------- //
-
-interface HttpProcessor
-{
-    void onInit();
-    void onLog( string s );
-    void onRequest( shared( Request ) req );
-    bool onIdle();  //return true if we processed something
-    void onExit();
-	
-	HttpResponse lastResponse();
 }
 
 // ------------------------------------------------------------------------- //
@@ -504,77 +453,6 @@ protected:
 }
 
 // ------------------------------------------------------------------------- //
-// ------------------------------------------------------------------------- //
-
-ubyte[] toBuffer( HttpResponse r, bool includeHeaders = true )
-{
-    auto buf = appender!( ubyte[] )();
-    buf.reserve( 512 );
-
-    if( includeHeaders )
-    {
-        buf.put( cast( ubyte[] ) HTTP_11 );
-        buf.put( ' ' );
-
-        buf.put( cast( ubyte[] ) to!string( r.statusCode ) );
-        buf.put( ' ' );
-        buf.put( cast( ubyte[] ) r.statusMesg );
-        buf.put( '\r' );
-        buf.put( '\n' );
-
-        r.addHeader( SERVER_HEADER, SERVER_DESC );
-
-        if( !( "Date" in r.headers ) )
-        {
-            long now = time( null );
-            r.addHeader( "Date", to!string( asctime( gmtime( & now ) ) )[0..$ -1] );
-        }
-
-        foreach( k, v1; r.headers )
-        {
-            foreach( v; v1 )
-            {
-                buf.put( cast( ubyte[] ) k );
-                buf.put( ':' );
-                buf.put( ' ' );
-                buf.put( cast( ubyte[] ) v );
-                buf.put( '\r' );
-                buf.put( '\n' );
-            }
-        }
-
-		buf.put( '\r' );
-		buf.put( '\n' );
-    }
-
-    if( r.data.length > 0 )
-        buf.put( cast( ubyte[] ) r.data );
-
-//    debug dumpHex( cast( char[] ) buf.data, "HTTP RESPONSE" );
-    return buf.data;
-}
-
-// ------------------------------------------------------------------------- //
-
-ubyte[] toBuffer( HttpRequest req )
-{
-    ubyte[] buf;
-
-    buf ~= format( "%s %s %s\r\n", to!string( req.method ), req.uri.dup, req.protocol.dup );
-    buf ~= format( "Host: %s\r\n", req.getHeader( "Host" ) );
-    foreach( k,v1; req.headers )
-    {
-        if( k != "Host" )
-        {
-            foreach( v; v1 )
-                buf ~= format( "%s: %s\r\n", k.dup, v.dup );
-        }
-    }
-
-    buf ~= format( "Connection: %s\r\n\r\n", req.protocol == HTTP_10 ? "close" : "Keep-Alive" );
-    return buf;
-}
-
 // ------------------------------------------------------------------------- //
 
 ulong hexToULong( ubyte[] d )
