@@ -848,6 +848,9 @@ ubyte[] toBuffer( HttpResponse r, bool includeHeaders = true )
             r.addHeader( "Date", to!string( asctime( gmtime( & now ) ) )[0..$ -1] );
         }
 
+		if( !( "Content-Length" in r.headers ) )
+			r.addHeader( "Content-Length", to!string( r.data.length ) );
+
         foreach( k, v1; r.headers )
         {
             foreach( v; v1 )
@@ -867,9 +870,6 @@ ubyte[] toBuffer( HttpResponse r, bool includeHeaders = true )
 
     if( r.data.length > 0 )
         buf.put( cast( ubyte[] ) r.data );
-
-	if( !( "Content-Length" in r.headers ) )
-		r.addHeader( "Content-Length", to!string( r.data.length ) );
 
     debug dump( r, "HTTP RESPONSE" );
     return buf.data;
